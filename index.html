@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hobby Tracker</title>
+
+    <!-- PWA META -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#007AFF">
+    <link rel="manifest" href="manifest.json">
+
+    <!-- iOS support -->
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+    <style>
+        body {
+            font-family: -apple-system, sans-serif;
+            margin: 0;
+            background: #f5f5f7;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: auto;
+            padding: 15px;
+        }
+
+        .card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 5px;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+            touch-action: manipulation;
+        }
+
+        .primary { background: #007AFF; color: white; }
+        .danger { background: #FF3B30; color: white; }
+        .secondary { background: #E5E5EA; }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>Hobby Tracker</h2>
+
+<div class="card">
+    <input id="newProject" placeholder="New project">
+    <button class="secondary" ontouchstart="addProject()">Add Project</button>
+</div>
+
+<div class="card">
+    <select id="project"></select>
+
+    <button class="primary" ontouchstart="startSession()">Start</button>
+    <button class="danger" ontouchstart="endSession()">End</button>
+</div>
+
+<div class="card">
+    <button class="primary" ontouchstart="exportCSV()">Export</button>
+</div>
+
+</div>
+
+<script>
+// Register service worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js');
+}
+
+// Basic logic (shortened for clarity)
+function addProject() {
+    let name = document.getElementById("newProject").value;
+    let projects = JSON.parse(localStorage.getItem("projects")) || [];
+    projects.push(name);
+    localStorage.setItem("projects", JSON.stringify(projects));
+    loadProjects();
+}
+
+function loadProjects() {
+    let projects = JSON.parse(localStorage.getItem("projects")) || [];
+    let select = document.getElementById("project");
+    select.innerHTML = "";
+    projects.forEach(p => {
+        let opt = document.createElement("option");
+        opt.textContent = p;
+        select.appendChild(opt);
+    });
+}
+
+function startSession(){ localStorage.setItem("start", Date.now()); }
+function endSession(){
+    let start = localStorage.getItem("start");
+    if(!start) return;
+    let dur = (Date.now() - start)/1000;
+    alert("Session: " + Math.round(dur/60) + " min");
+}
+
+function exportCSV(){
+    let blob = new Blob(["Test"], {type:"text/csv"});
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "data.csv";
+    a.click();
+}
+
+loadProjects();
+</script>
+
+</body>
+</html>
