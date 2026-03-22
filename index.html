@@ -14,38 +14,19 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
 
     <style>
-        body {
-            font-family: -apple-system, sans-serif;
-            margin: 0;
-            background: #f5f5f7;
-        }
-
-        .container {
-            max-width: 500px;
-            margin: auto;
-            padding: 15px;
-        }
-
-        .card {
-            background: white;
-            padding: 15px;
-            border-radius: 12px;
-            margin-bottom: 15px;
-        }
-
-        button {
-            width: 100%;
-            padding: 12px;
-            margin-top: 5px;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-            touch-action: manipulation;
-        }
-
-        .primary { background: #007AFF; color: white; }
-        .danger { background: #FF3B30; color: white; }
-        .secondary { background: #E5E5EA; }
+        body { font-family: -apple-system, sans-serif; margin:0; background:#f5f5f7;}
+        .container { max-width:500px; margin:auto; padding:15px; }
+        .card { background:white; padding:15px; border-radius:12px; margin-bottom:15px;}
+        input, select { width:100%; padding:10px; margin:5px 0; border-radius:8px; border:1px solid #ccc;}
+        button { width:100%; padding:12px; margin-top:5px; border:none; border-radius:10px; font-weight:bold; touch-action: manipulation;}
+        .primary { background: #007AFF; color:white;}
+        .danger { background: #FF3B30; color:white;}
+        .secondary { background: #E5E5EA;}
+        .row { display:flex; gap:10px;}
+        .row button { flex:1;}
+        .small-btn { font-size:12px; padding:5px 8px; margin-left:5px;}
+        .project-date { display:block; font-size:12px; color:gray;}
+        .status { text-align:center; font-weight:bold; margin-bottom:10px;}
     </style>
 </head>
 
@@ -54,20 +35,49 @@
 
 <h2>Hobby Tracker</h2>
 
+<div class="card clock">
+    <div>Current Time</div>
+    <div id="clock"></div>
+</div>
+
 <div class="card">
-    <input id="newProject" placeholder="New project">
+    <input type="text" id="newProject" placeholder="New project (e.g. Pottery Bowls)">
     <button class="secondary" ontouchstart="addProject()">Add Project</button>
-</div>
 
-<div class="card">
     <select id="project"></select>
-
-    <button class="primary" ontouchstart="startSession()">Start</button>
-    <button class="danger" ontouchstart="endSession()">End</button>
 </div>
 
 <div class="card">
-    <button class="primary" ontouchstart="exportCSV()">Export</button>
+    <div class="row">
+        <button class="primary" ontouchstart="startSession()">Start</button>
+        <button class="danger" ontouchstart="endSession()">End</button>
+    </div>
+    <button class="secondary" ontouchstart="editLastSession()">Edit Last Session</button>
+</div>
+
+<div class="card">
+    <div class="status" id="status">Not tracking</div>
+    <p>Start: <span id="startTimeDisplay">-</span></p>
+    <p>End: <span id="endTimeDisplay">-</span></p>
+    <p>Duration: <span id="sessionDuration">0</span></p>
+</div>
+
+<div class="card">
+    <h3>Projects</h3>
+    <ul id="projectList"></ul>
+</div>
+
+<div class="card">
+    <h3>Totals</h3>
+    <ul id="totals"></ul>
+</div>
+
+<div class="card">
+    <button class="primary" ontouchstart="exportCSV()">Export to Excel</button>
+</div>
+
+<div class="card">
+    <button class="danger" ontouchstart="resetAll()">Reset All Data</button>
 </div>
 
 </div>
@@ -78,43 +88,133 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js');
 }
 
-// Basic logic (shortened for clarity)
-function addProject() {
-    let name = document.getElementById("newProject").value;
-    let projects = JSON.parse(localStorage.getItem("projects")) || [];
-    projects.push(name);
-    localStorage.setItem("projects", JSON.stringify(projects));
-    loadProjects();
-}
+// Clock
+function updateClock(){ document.getElementById("clock").textContent = new Date().toLocaleTimeString(); }
+setInterval(updateClock,1000); updateClock();
 
-function loadProjects() {
-    let projects = JSON.parse(localStorage.getItem("projects")) || [];
-    let select = document.getElementById("project");
-    select.innerHTML = "";
-    projects.forEach(p => {
-        let opt = document.createElement("option");
-        opt.textContent = p;
-        select.appendChild(opt);
+let startTime = null;
+let timerInterval = null;
+let lastSession = null;
+
+// Format time
+function formatTime(sec){ const h=Math.floor(sec/3600); const m=Math.floor((sec%3600)/60); return h+"h "+m+"m"; }
+
+// Live session timer
+function updateSessionDuration(){ if(!startTime)return; const sec=(Date.now()-startTime)/1000; document.getElementById("sessionDuration").textContent=formatTime(sec); }
+
+// Load projects
+function loadProjects(){
+    let projects=JSON.parse(localStorage.getItem("projects"))||[];
+    if(projects.length&&typeof projects[0]==="string"){
+        projects=projects.map(p=>({name:p, created:new Date().toLocaleDateString()}));
+        localStorage.setItem("projects",JSON.stringify(projects));
+    }
+
+    const select=document.getElementById("project");
+    const list=document.getElementById("projectList");
+    select.innerHTML=""; list.innerHTML="";
+
+    projects.forEach(p=>{
+        let option=document.createElement("option");
+        option.value=p.name; option.textContent=p.name; select.appendChild(option);
+
+        let li=document.createElement("li");
+        li.innerHTML=`${p.name} <span class="project-date">Started: ${p.created}</span>`;
+        let edit=document.createElement("button"); edit.textContent="Edit"; edit.className="small-btn"; edit.onclick=()=>editProject(p.name);
+        let del=document.createElement("button"); del.textContent="X"; del.className="small-btn"; del.onclick=()=>deleteProject(p.name);
+
+        li.appendChild(edit); li.appendChild(del); list.appendChild(li);
     });
 }
 
-function startSession(){ localStorage.setItem("start", Date.now()); }
+// Add project
+function addProject(){
+    const input=document.getElementById("newProject");
+    const name=input.value.trim(); if(!name) return;
+    let projects=JSON.parse(localStorage.getItem("projects"))||[];
+    if(!projects.some(p=>p.name===name)){ projects.push({name:name, created:new Date().toLocaleDateString()}); localStorage.setItem("projects",JSON.stringify(projects)); }
+    input.value=""; loadProjects();
+}
+
+// Edit project
+function editProject(oldName){
+    let newName=prompt("Edit project:",oldName); if(!newName)return;
+    let projects=JSON.parse(localStorage.getItem("projects"))||[];
+    let totals=JSON.parse(localStorage.getItem("totals"))||{};
+    projects=projects.map(p=>{ if(p.name===oldName)p.name=newName; return p; });
+    if(totals[oldName]){ totals[newName]=totals[oldName]; delete totals[oldName]; }
+    localStorage.setItem("projects",JSON.stringify(projects)); localStorage.setItem("totals",JSON.stringify(totals));
+    loadProjects(); loadTotals();
+}
+
+// Delete project
+function deleteProject(name){
+    if(!confirm("Delete "+name+"?"))return;
+    let projects=JSON.parse(localStorage.getItem("projects"))||[];
+    let totals=JSON.parse(localStorage.getItem("totals"))||{};
+    projects=projects.filter(p=>p.name!==name); delete totals[name];
+    localStorage.setItem("projects",JSON.stringify(projects)); localStorage.setItem("totals",JSON.stringify(totals));
+    loadProjects(); loadTotals();
+}
+
+// Start session
+function startSession(){
+    const project=document.getElementById("project").value; if(!project)return alert("Add a project first!");
+    startTime=Date.now(); document.getElementById("status").textContent="Tracking..."; document.getElementById("startTimeDisplay").textContent=new Date(startTime).toLocaleTimeString();
+    timerInterval=setInterval(updateSessionDuration,1000);
+}
+
+// End session
 function endSession(){
-    let start = localStorage.getItem("start");
-    if(!start) return;
-    let dur = (Date.now() - start)/1000;
-    alert("Session: " + Math.round(dur/60) + " min");
+    if(!startTime)return alert("Start first!");
+    const end=Date.now(); const dur=(end-startTime)/1000;
+    const project=document.getElementById("project").value;
+    let totals=JSON.parse(localStorage.getItem("totals"))||{}; if(!totals[project])totals[project]=0; totals[project]+=dur;
+    lastSession={project, startTime, endTime:end, duration:dur};
+    localStorage.setItem("totals",JSON.stringify(totals));
+    document.getElementById("status").textContent="Done";
+    document.getElementById("endTimeDisplay").textContent=new Date(end).toLocaleTimeString();
+    document.getElementById("sessionDuration").textContent=formatTime(dur);
+    clearInterval(timerInterval); startTime=null;
+    loadTotals();
 }
 
+// Edit last session
+function editLastSession(){
+    if(!lastSession)return alert("No session");
+    let input=prompt("New end time (HH:MM):",new Date(lastSession.endTime).toTimeString().slice(0,5)); if(!input)return;
+    const [h,m]=input.split(":").map(Number);
+    let newEnd=new Date(lastSession.startTime); newEnd.setHours(h,m,0);
+    let newDur=(newEnd-lastSession.startTime)/1000; if(newDur<=0)return alert("Invalid");
+    let totals=JSON.parse(localStorage.getItem("totals"))||{};
+    totals[lastSession.project]-=lastSession.duration; totals[lastSession.project]+=newDur;
+    localStorage.setItem("totals",JSON.stringify(totals));
+    lastSession.duration=newDur; lastSession.endTime=newEnd.getTime();
+    document.getElementById("endTimeDisplay").textContent=newEnd.toLocaleTimeString();
+    document.getElementById("sessionDuration").textContent=formatTime(newDur);
+    loadTotals();
+}
+
+// Load totals
+function loadTotals(){
+    const totals=JSON.parse(localStorage.getItem("totals"))||{};
+    const list=document.getElementById("totals"); list.innerHTML="";
+    for(let p in totals){ let li=document.createElement("li"); li.textContent=p+": "+formatTime(totals[p]); list.appendChild(li); }
+}
+
+// Export CSV
 function exportCSV(){
-    let blob = new Blob(["Test"], {type:"text/csv"});
-    let a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "data.csv";
-    a.click();
+    const totals=JSON.parse(localStorage.getItem("totals"))||{};
+    let csv="Project,Hours,Minutes\n";
+    for(let p in totals){ let sec=totals[p]; let h=Math.floor(sec/3600); let m=Math.floor((sec%3600)/60); csv+=`${p},${h},${m}\n`; }
+    const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="hobby-tracker.csv"; a.click(); URL.revokeObjectURL(a.href);
 }
 
-loadProjects();
+// Reset all
+function resetAll(){ if(!confirm("Reset everything?"))return; localStorage.clear(); loadProjects(); loadTotals(); }
+
+// Init
+loadProjects(); loadTotals();
 </script>
 
 </body>
